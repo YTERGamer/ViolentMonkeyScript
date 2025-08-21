@@ -1,0 +1,39 @@
+// ==UserScript==
+// @name         Block t-online Information Alert
+// @namespace    http://tampermonkey.net/
+// @match        https://email.t-online.de/*
+// @grant        none
+// @version      1.0
+// @author       YTERGamer
+// @description  Removes the informational alert banner on t-online email
+// @run-at       document-idle
+// ==/UserScript==
+
+(function () {
+    'use strict';
+
+    // Function to remove the alert element
+    const removeAlert = () => {
+        // Select the div with specific part and role attributes
+        const selector = 'div[part="base type-inline variant-informational open"][role="alert"]';
+        const alert = document.querySelector(selector);
+
+        if (alert) {
+            alert.remove();
+            console.log('Blocked and removed t-online informational alert');
+        }
+    };
+
+    // Run once on page load
+    removeAlert();
+
+    // Use MutationObserver to catch dynamically added alerts
+    const observer = new MutationObserver(() => {
+        removeAlert();
+    });
+
+    // Start observing the entire body for added/changed nodes
+    observer.observe(document.body, {
+        childList: true,
+        subtree: true
+    });
