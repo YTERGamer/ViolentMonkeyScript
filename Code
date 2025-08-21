@@ -1,0 +1,65 @@
+// ==UserScript==
+// @name        New script unknowncheats.me
+// @namespace   Violentmonkey Scripts
+// @match       https://www.unknowncheats.me/forum/index.php*
+// @grant       none
+// @version     1.0
+// @author      -
+// @description 8/21/2025, 9:19:50 PM
+// ==/UserScript==
+
+(function () {
+    'use strict';
+
+    // Function to block GIFs
+    function blockGifs() {
+        // Select all images on the page
+        const images = document.querySelectorAll('img');
+        images.forEach(img => {
+            const src = img.src.toLowerCase();
+            // Check if the image is a GIF
+            if (src.endsWith('.gif')) {
+                // Store original source and set a placeholder
+                img.setAttribute('data-original-src', src);
+                img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'; // Blank GIF
+                img.style.cursor = 'pointer';
+                img.title = 'Click to view the original GIF';
+                // Add a click event to restore the original GIF
+                img.addEventListener('click', function () {
+                    this.src = this.getAttribute('data-original-src');
+                    this.removeEventListener('click', arguments.callee);
+                });
+            }
+        });
+    }
+
+    // Run the blocking function when the page loads
+    window.addEventListener('load', blockGifs);
+
+    // Also run on dynamically added images (e.g., via AJAX)
+    const observer = new MutationObserver(function (mutations) {
+        mutations.forEach(function (mutation) {
+            mutation.addedNodes.forEach(function (node) {
+                if (node.nodeType === 1) { // Element node
+                    if (node.matches && node.matches('img')) {
+                        blockGifs();
+                    } else {
+                        // Check for images within the added node
+                        const images = node.querySelectorAll ? node.querySelectorAll('img') : [];
+                        images.forEach(img => {
+                            if (img.src.toLowerCase().endsWith('.gif')) {
+                                blockGifs();
+                            }
+                        });
+                    }
+                }
+            });
+        });
+    });
+
+    // Start observing the document body for new nodes
+    observer.observe(document.body, {
+        childList: true,
+        subtree: true
+    });
+})();
