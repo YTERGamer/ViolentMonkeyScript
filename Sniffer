@@ -1,0 +1,230 @@
+EEG Script:
+https://neuro-guard-4ea51c7f.base44.app
+_____________________________________________
+"""
+===============================================================
+🐾  WATCHDOG_SNIFFER
+===============================================================
+EEG + SteelSeries Monitoring Dashboard
+
+Features:
+ - Monitors EEG data via LabStreamingLayer (LSL)
+ - Simulated EEG mode if no real stream found
+ - Detects custom events like "TALKING", "BTC mining", "Sniched"
+ - Controls SteelSeries Aerox 3 RGB lights via rivalcfg
+ - Visual Kivy dashboard with live event updates
+ - Auto psychosis detection (based on EEG signal variance)
+ - Neon cyberpunk style visuals
+===============================================================
+"""
+
+import random
+import time
+import threading
+import numpy as np
+from rivalcfg import Device
+from kivy.app import App
+from kivy.uix.button import Button
+from kivy.uix.label import Label
+from kivy.uix.boxlayout import BoxLayout
+from kivy.clock import Clock
+from kivy.core.window import Window
+from pylsl import StreamInlet, resolve_byprop
+
+# ============================================================
+# 🧠 CONFIGURATION & CONSTANTS
+# ============================================================
+COLOR_PRESETS = {
+    "default": [(255, 255, 0), (255, 0, 0), (0, 255, 0)],  # yellow, red, green
+}
+
+EVENT_MAPPING = {
+    "SNitching": "TALKING",
+    "SNATCHING": "TALKING",
+    "hot ♨": "BTC mining",
+    "SImp": "BTC mining",
+}
+
+latest_event = "N/A"
+talking_counter = 0
+
+# ============================================================
+# 🎨 UTILITY FUNCTIONS
+# ============================================================
+def validate_rgb(value):
+    return isinstance(value, tuple) and len(value) == 3 and all(0 <= v <= 255 for v in value)
+
+def set_rgb_color(device, color):
+    if validate_rgb(color):
+        device.z1_color(color)
+    else:
+        device.z1_color(random.choice(COLOR_PRESETS["default"]))
+
+def analyze_eeg(eeg_window):
+    """Simple anomaly detection: returns True if EEG standard deviation is high."""
+    if eeg_window.size == 0:
+        return False
+    return np.std(eeg_window) > 50.0
+
+# ============================================================
+# 🖱️ MOUSE MONITOR THREAD
+# ============================================================
+def monitor_mouse(device):
+    """Continuously monitor mouse status and update color."""
+    while True:
+        try:
+            battery_status = device.battery()
+            if battery_status < 20:
+                set_rgb_color(device, COLOR_PRESETS["default"][0])  # yellow
+            elif device.is_flashing_red():
+                set_rgb_color(device, COLOR_PRESETS["default"][1])  # red
+            else:
+                set_rgb_color(device, COLOR_PRESETS["default"][2])  # green
+        except Exception as e:
+            print(f"[Mouse Thread Error] {e}")
+        time.sleep(10)
+
+# ============================================================
+# 🧩 EEG MONITOR THREAD (REAL OR SIMULATED)
+# ============================================================
+def monitor_eeg_windowed(window_seconds=1, simulate=False):
+    """Monitor EEG (real or simulated) and map to events."""
+    global latest_event, talking_counter
+    consecutive_anomaly_seconds = 0
+    executed_talking = False
+
+    if simulate:
+        print("⚙️  Simulated EEG mode active.")
+        while True:
+            event = random.choice(list(EVENT_MAPPING.keys()) + [None])
+            detected_event = EVENT_MAPPING.get(event, "Unknown")
+
+            if detected_event == "TALKING":
+                talking_counter += 1
+                if talking_counter == 2:
+                    print("🕵️‍♂️ Sniched! Double TALKING event detected.")
+                latest_event = "💬 TALKING"
+            elif detected_event == "BTC mining":
+                latest_event = "♨️ BTC mining"
+                talking_counter = 0
+            else:
+                latest_event = "Unknown"
+                talking_counter = 0
+            time.sleep(1)
+        return
+
+    # --- Real EEG Mode ---
+    print("🔗 Resolving EEG stream...")
+    streams = resolve_byprop('type', 'EEG', timeout=10)
+    if not streams:
+        print("⚠️ No EEG stream found, switching to simulated mode.")
+        monitor_eeg_windowed(simulate=True)
+        return
+
+    inlet = StreamInlet(streams[0])
+    srate = streams[0].info().nominal_srate() or 256.0
+    samples_per_window = int(srate * window_seconds)
+    window = []
+
+    while True:
+        sample, timestamp = inlet.pull_sample(timeout=1.0)
+        if sample is None:
+            continue
+        window.append(sample)
+        if len(window) >= samples_per_window:
+            eeg_window = np.array(window)
+            window.clear()
+
+            detected_event = getattr(sample, "event", None)
+            if detected_event in EVENT_MAPPING:
+                detected_event = EVENT_MAPPING[detected_event]
+
+            # TALKING logic
+            if detected_event == "TALKING":
+                talking_counter += 1
+                if talking_counter == 2:
+                    print("🕵️‍♂️ Sniched! Double TALKING event detected.")
+                latest_event = "💬 TALKING"
+                executed_talking = True
+            elif detected_event == "BTC mining":
+                latest_event = "♨️ BTC mining"
+                talking_counter = 0
+                executed_talking = False
+            else:
+                latest_event = detected_event if detected_event else "Unknown"
+                talking_counter = 0
+                executed_talking = False
+
+            # Psychosis check
+            if analyze_eeg(eeg_window):
+                consecutive_anomaly_seconds += window_seconds
+            else:
+                consecutive_anomaly_seconds = 0
+
+            if consecutive_anomaly_seconds >= 12:
+                print(f"⚠️ Psychosis detected! Event: {latest_event}")
+
+            time.sleep(1)
+
+# ============================================================
+# 💻 KIVY UI
+# ============================================================
+class WatchDogApp(App):
+    title = "🐾 WatchDog Sniffer"
+    
+    def build(self):
+        Window.clearcolor = (0.05, 0.05, 0.1, 1)
+        layout = BoxLayout(orientation='vertical', padding=20, spacing=10)
+        self.status_label = Label(text="Initializing...", font_size=24, color=(0,1,0,1))
+        self.battery_label = Label(text="🔋 Battery: --%", font_size=20, color=(0.8,0.8,0.8,1))
+        self.event_label = Label(text="🧠 Latest EEG Event: N/A", font_size=22, color=(0.3,1,1,1))
+        self.close_button = Button(text="❌ Close Application", size_hint=(1, 0.2), background_color=(0.2, 0, 0.2, 1))
+        self.close_button.bind(on_press=self.close_app)
+
+        layout.add_widget(self.status_label)
+        layout.add_widget(self.battery_label)
+        layout.add_widget(self.event_label)
+        layout.add_widget(self.close_button)
+
+        Clock.schedule_interval(self.update_ui, 0.5)
+        return layout
+
+    def update_ui(self, dt):
+        self.status_label.text = "✅ System Operational"
+        self.battery_label.text = "🔋 Battery: Monitoring..."
+        display_event = latest_event
+        if latest_event == "💬 TALKING" and talking_counter >= 2:
+            display_event = "🕵️‍♂️ Sniched"
+        self.event_label.text = f"🧠 Latest EEG Event: {display_event}"
+
+    def close_app(self, instance):
+        App.get_running_app().stop()
+
+# ============================================================
+# 🚀 MAIN
+# ============================================================
+def main():
+    print("🚀 Launching WatchDog Sniffer...")
+    try:
+        device = Device("Aerox 3 Wireless")
+        device.connect()
+        # startup blink
+        for _ in range(3):
+            device.z1_color((255, 255, 255))
+            time.sleep(0.3)
+            device.z1_color((0, 0, 0))
+            time.sleep(0.3)
+    except Exception as e:
+        print(f"⚠️ Device not found: {e}")
+        device = None
+
+    # Threads
+    if device:
+        threading.Thread(target=monitor_mouse, args=(device,), daemon=True).start()
+    threading.Thread(target=monitor_eeg_windowed, kwargs={'simulate': False}, daemon=True).start()
+
+    # Launch UI
+    WatchDogApp().run()
+
+if __name__ == "__main__":
+    main()
